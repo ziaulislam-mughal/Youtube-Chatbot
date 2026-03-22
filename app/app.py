@@ -1,110 +1,166 @@
 import streamlit as st
-import os
 from youtube_transcript_api import YouTubeTranscriptApi
-from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpoint, ChatHuggingFace
+from langchain_huggingface import (
+    HuggingFaceEmbeddings,
+    HuggingFaceEndpoint,
+    ChatHuggingFace,
+)
 
-# Set up the page title
-st.set_page_config(page_title="YouTube RAG Chatbot", page_icon="🎥")
-st.title("🎥 YouTube Transcript Chatbot")
+# ------------------ PAGE CONFIG ------------------
+st.set_page_config(page_title="YouTube AI Chat", page_icon="🤖", layout="wide")
 
-# --- SIDEBAR FOR CONFIGURATION ---
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    hf_token = st.text_input("HuggingFace API Token", type="password", help="Enter your HF token to use Llama-3.1")
-    st.markdown("This chatbot uses `meta-llama/Llama-3.1-8B-Instruct` via the Hugging Face Endpoint.")
+st.markdown(
+    """
+<h1 style='text-align:center;'>🤖 Chat with YouTube Video</h1>
+<p style='text-align:center;'>Ask questions about any YouTube video using AI</p>
+""",
+    unsafe_allow_html=True,
+)
 
-# --- SESSION STATE INITIALIZATION ---
+# ------------------ SESSION STATE ------------------
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
-# --- MAIN APP: VIDEO PROCESSING ---
-st.subheader("1. Load Video Transcript")
-video_id = st.text_input("Enter YouTube Video ID (e.g., Gfr50f6ZBvo)")
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if st.button("Process Video"):
-    if not video_id:
-        st.warning("Please enter a Video ID.")
-    else:
-        with st.spinner("Fetching transcript and building vector store (this may take a minute)..."):
+# ------------------ SIDEBAR ------------------
+with st.sidebar:
+
+    st.title("⚙️ Settings")
+
+    hf_token = st.text_input("HuggingFace Token", type="password")
+
+    model_choice = st.selectbox(
+        "Select Model",
+        ["HuggingFaceH4/zephyr-7b-beta", "meta-llama/Llama-3.1-8B-Instruct"],
+    )
+
+    st.divider()
+
+    st.subheader("📺 YouTube Video")
+
+    video_id = st.text_input("Enter Video ID", placeholder="example: Gfr50f6ZBvo")
+
+    if video_id:
+        st.video(f"https://www.youtube.com/watch?v={video_id}")
+
+    process = st.button("Process Video")
+
+    if process:
+
+        with st.spinner("Processing video..."):
+
             try:
-                # 1. Fetch transcript (From your notebook)
+
                 ytt_api = YouTubeTranscriptApi()
                 fetched_transcript = ytt_api.fetch(video_id)
-                transcript_text = " ".join(chunk['text'] for chunk in fetched_transcript)
-                
-                # 2. Text Splitter (From your notebook)
-                splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                chunks = splitter.create_documents([transcript_text])
-                
-                # 3. Embedding Generation & Vector Store Indexing
-                embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-                vector_store = FAISS.from_documents(chunks, embeddings)
-                
-                # Save FAISS vector store to session state so it persists
-                st.session_state.vector_store = vector_store
-                st.success(f"Video `{video_id}` processed successfully! {len(chunks)} chunks created.")
-            except Exception as e:
-                st.error(f"Error processing video transcript: {e}")
 
-# --- MAIN APP: CHAT INTERFACE ---
-st.subheader("2. Ask Questions")
-question = st.text_input("Ask a question based on the video's context:")
+                transcript = " ".join(chunk.text for chunk in fetched_transcript)
 
-if st.button("Get Answer"):
-    if not hf_token:
-        st.error("Please enter your Hugging Face API Token in the sidebar.")
-    elif not st.session_state.vector_store:
-        st.error("Please process a video first before asking questions.")
-    elif not question:
-        st.warning("Please type a question.")
-    else:
-        with st.spinner("Generating answer..."):
-            try:
-                # 1. Setup LLM 
-                repo_id = "meta-llama/Llama-3.1-8B-Instruct"
-                llm = HuggingFaceEndpoint(
-                    repo_id=repo_id,
-                    task="text-generation",
-                    max_new_tokens=512,
-                    temperature=0.7,
-                    huggingfacehub_api_token=hf_token,
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=1000, chunk_overlap=200
                 )
-                model = ChatHuggingFace(llm=llm)
-                
-                # 2. Retrieve Context via FAISS
-                retriever = st.session_state.vector_store.as_retriever()
-                retrieved_docs = retriever.invoke(question)
-                context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
-                
-                # 3. Construct Prompt (From your notebook)
-                prompt_template = """You are a helpful assistant.
-Answer only from the provided transcript context.
-If the context is insufficient, just say you don't know.
 
+                docs = splitter.create_documents([transcript])
+
+                embeddings = HuggingFaceEmbeddings(
+                    model_name="sentence-transformers/all-MiniLM-L6-v2"
+                )
+
+                st.session_state.vector_store = FAISS.from_documents(docs, embeddings)
+
+                st.success("Video processed successfully!")
+
+                st.session_state.messages = []
+
+            except Exception as e:
+                st.error(e)
+
+    if st.button("Clear Chat"):
+        st.session_state.messages = []
+
+# ------------------ CHAT UI ------------------
+
+chat_container = st.container()
+
+with chat_container:
+
+    for message in st.session_state.messages:
+
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+# ------------------ CHAT INPUT ------------------
+
+user_prompt = st.chat_input("Ask anything about this video...")
+
+if user_prompt:
+
+    st.session_state.messages.append({"role": "user", "content": user_prompt})
+
+    with st.chat_message("user"):
+        st.markdown(user_prompt)
+
+    with st.chat_message("assistant"):
+
+        if not hf_token:
+            st.error("Please add HuggingFace token in sidebar")
+
+        elif not st.session_state.vector_store:
+            st.error("Process a video first")
+
+        else:
+
+            with st.spinner("AI is thinking..."):
+
+                try:
+
+                    llm = HuggingFaceEndpoint(
+                        repo_id=model_choice,
+                        task="text-generation",
+                        max_new_tokens=512,
+                        temperature=0.7,
+                        huggingfacehub_api_token=hf_token,
+                    )
+
+                    model = ChatHuggingFace(llm=llm)
+
+                    retriever = st.session_state.vector_store.as_retriever()
+
+                    docs = retriever.invoke(user_prompt)
+
+                    context = "\n\n".join(doc.page_content for doc in docs)
+
+                    prompt_template = """
+You are an AI assistant.
+
+Answer only from the transcript context.
+
+Context:
 {context}
-Question: {question}"""
-                prompt = PromptTemplate(
-                    template=prompt_template,
-                    input_variables=['context', 'question']
-                )
-                
-                final_prompt = prompt.format(context=context_text, question=question)
-                
-                # 4. Generate Answer
-                answer = model.invoke(final_prompt)
-                
-                # 5. Display Answer
-                st.write("### Answer:")
-                st.info(answer.content)
-                
-                # Optional: Show expandable sources
-                with st.expander("View Retrieved Context Chunks"):
-                    for i, doc in enumerate(retrieved_docs):
-                        st.markdown(f"**Chunk {i+1}:**\n {doc.page_content}")
-                        
-            except Exception as e:
-                st.error(f"Error generating answer. Check your HF token. Details: {e}")
+
+Question:
+{question}
+"""
+
+                    prompt = PromptTemplate(
+                        template=prompt_template,
+                        input_variables=["context", "question"],
+                    )
+
+                    final_prompt = prompt.format(context=context, question=user_prompt)
+
+                    response = model.invoke(final_prompt)
+
+                    st.markdown(response.content)
+
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": response.content}
+                    )
+
+                except Exception as e:
+                    st.error(e)
