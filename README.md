@@ -32,9 +32,17 @@ It leverages LangChain for orchestration, Hugging Face models for embeddings and
 ---
 
 ## 📷 Demo
-<img src="Screenshots/Capture.PNG" alt="App Screenshot" width="400">
-<img src="Screenshots/2.PNG" alt="App Screenshot" width="400">
-<img src="Screenshots/3.PNG" alt="App Screenshot" width="400">
+<table align="center">
+  <tr>
+    <td><img src="Screenshots/2.PNG" alt="App Screenshot 1" width="400"></td>
+    <td><img src="Screenshots/3.PNG" alt="App Screenshot 2" width="400"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <img src="Screenshots/Capture.PNG" alt="App Screenshot 3" width="400">
+    </td>
+  </tr>
+</table>
 
 ---
 
